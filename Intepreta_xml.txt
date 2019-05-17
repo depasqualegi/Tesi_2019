@@ -1,0 +1,5015 @@
+package Esercizi;
+
+import java.io.*;
+
+public class Interpreta_xml {
+
+	static long[][] converti;
+	static long[][] converti_new;
+	static long[][] converti_integrato;
+	static long[][] analisi_voci;
+	static long[][] modifica_voci;
+	static long[][] partiture;
+	static int[][] features;
+	static long[][] new_measure;
+	static int[] tempo;
+	static int i_max;
+	static int i_max_integrato;
+	static int i_new;
+	static int j_new;
+	static int j_max;
+	static int j_max_integrato;
+	static long actual_notes;
+	static long normal_notes;
+	static int Staccato;
+	static int Tuplets;
+	static long Divisione;
+	static long last_temp;
+
+	static int ip,jp,jp_max,i_f, if_max;
+	static int Autore;
+	static String Opera;
+	static String Pianista[]={"Chopin","Beethoven","Mozart"};
+	
+	static boolean staff;
+
+	public static void main(String[] args) {
+		
+		converti = new long[2500][1500];
+		converti_new = new long[3000][1500];
+		converti_integrato = new long[2500][1500];
+		analisi_voci = new long[6][1500];  // prova
+		modifica_voci = new long[6][1500];
+		new_measure = new long[1][1500];
+		partiture = new long[2500][1500];
+		features = new int[500][1500];
+		tempo=new int[1500];
+
+// -------------------- LEGGI FILE .XML, INTERPRETA E TRASFERISCE IN PROVA.TXT ------------------------ 
+
+		leggiFiles();
+		
+		System.out.println("i max = "+i_max);
+		System.out.println("j max = "+j_max);
+		
+// -------------------- PRIMA SCANSIONE (DIVISIONE, TONALITA', METRO, TEMPI, PAUSE, NOTE, BACKUP)------------------------ 
+
+		primaScansione();
+		
+// -------------------- SECONDA SCANSIONE (LEGATURE DI VALORE)------------------------ 
+
+		secondaScansione();
+
+// -------------------- TERZA SCANSIONE (STACCATO/TUPLETS/ACCORDI)------------------------ 
+
+		terzaScansione();
+
+//-------------------- DIVIDI BACKUP IN BATTUTE (MANO DESTRA E SINISTRA)------------------------ 
+
+		dividiBattute();
+
+// -------------------- QUARTA E ULTIMA SCANSIONE (CONTA PAUSE/CONTA NOTE/CONTA INTERVALLI/TRASFERIMENTO IN PARTITURE)------------------------ 
+		
+		quartaScansione();
+
+// -----------------------OUTPUT DI PARTITURE SULLA CONSOLE E NEL FILE PROVA2-----------------------	
+
+		scriviFiles();
+	}
+
+// -------------------- LEGGI FILE .XML, INTERPRETA E TRASFERISCE IN PROVA.TXT ------------------------ 
+
+public static void leggiFiles() {
+	boolean cerca, abilita_lettura;
+	int i_start;
+	int i_end;
+	String last_tempo;
+	int is,js, js_pre, i_p, piano, i_min=0;
+	int[] parte;
+	
+	Autore=1;
+	Opera="Nocturne op09 n2"; 
+	
+	File name = new File("C:/Users/Pino/Dati/Musica/Chopin 2/Nocturne op09 n2.xml");
+	
+	if (name.isFile()) {
+		try {
+			System.out.println("name.isFile() "+name.isFile());
+			
+			FileOutputStream prova = new FileOutputStream("C:/Users/Pino/Dati/Musica/Chopin 2/prova.txt");   
+			PrintStream scrivi = new PrintStream(prova);
+			
+			BufferedReader input = new BufferedReader(new FileReader(name));
+			String text;
+			
+			staff=false;
+			
+			parte= new int[12];
+			for (i_p=0; i_p<12; i_p++) parte[i_p]=0;
+			i_p=0;
+			piano=0;
+			abilita_lettura=false;
+			for (i_min=0; i_min<1000; i_min++) tempo[i_min]=0;
+			i_min=0;
+			
+			is=0;
+			js=0;
+			js_pre=0;
+			j_max=0;
+			while ((text = input.readLine()) != null) {
+							
+				cerca=cercaStringa("<score-part id",text);
+				if (cerca) {
+					i_start=0;
+					i_end=0;
+				    test:
+					for (int i=0; i<text.length(); i++) {
+						if (text.charAt(i)=='P') 
+							i_start=i+1;
+						if ((text.charAt(i)=='"')&&(i_start>0)) {
+							i_end=i;
+							break test;
+						}
+						
+					}
+					parte[i_p]=Integer.parseInt (text.substring(i_start,i_end));
+					i_p++;
+				}
+				
+				cerca=cercaStringa("<part-abbreviation",text);
+				if (cerca) {
+					i_start=0;
+					i_end=0;
+				    test:
+					for (int i=0; i<text.length(); i++) {
+						if (text.charAt(i)=='>') 
+							i_start=i+1;
+						if ((text.charAt(i)=='<')&&(i_start>0)) {
+							i_end=i;
+							break test;
+						}
+						
+					}
+					if (text.substring(i_start,i_end).equals("Pno.")) piano++;
+					else {
+						i_p--;
+						parte[i_p]=0;
+					}
+					
+				}
+				
+				cerca=cercaStringa("<part id=",text);
+				if (cerca) {
+					i_start=0;
+					i_end=0;
+				    test:
+					for (int i=0; i<text.length(); i++) {
+						if (text.charAt(i)=='P') 
+							i_start=i+1;
+						if ((text.charAt(i)=='"')&&(i_start>0)) {
+							i_end=i;
+							break test;
+						}
+						
+					}
+					int val=0;
+					val=Integer.parseInt (text.substring(i_start,i_end));
+					for (int i2=0; i2<i_p; i2++) {
+						if (parte[i2]==val) {
+							parte[i2]=-1;
+							abilita_lettura=true;
+							//System.out.println("abilita_lettura= "+abilita_lettura+" piano= "+piano);	
+						}
+					}
+				}
+				
+				cerca=cercaStringa("</part>",text);
+				if (cerca) {
+					abilita_lettura=false;
+					//piano--;
+					//System.out.println("abilita_lettura= "+abilita_lettura+" piano= "+piano);	
+				}
+				
+				if (!abilita_lettura) {
+					
+					cerca=cercaStringa("<measure",text);
+	
+					if (cerca) {
+						
+						i_start=21;
+						i_end=22;
+					    test1:
+						for (int i=22; i<text.length(); i++) {
+							if (text.charAt(i)=='"') {
+								i_end=i;
+								break test1;
+							}						
+						}
+						
+						i_min=Integer.parseInt (text.substring(i_start,i_end));
+						/*
+						if (i_min>1) {
+							int i_back=i_min-1;
+							while (tempo[i_back]==0) i_back--;
+							for (int i3=i_back+1; i3<i_min; i3++) tempo[i3]=tempo[i_back]; 
+						}
+						*/
+					}
+
+					cerca=cercaStringa("<per-minute",text);
+					if (cerca) {
+	
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}
+						}
+						tempo[i_min]=Integer.parseInt (text.substring(i_start,i_end));
+						//System.out.println("i_min= "+i_min+" tempo[i_min]= "+tempo[i_min]);	
+					}
+				}
+				
+				if (abilita_lettura) {
+					
+					if (js==1) {
+						int indice=-(int)converti[is][0];
+						if (tempo[indice]!=0) {
+							scrivi.print("Tempo"+',');
+							converti[is][js]=9999;
+							js++;
+							
+							scrivi.print(tempo[indice]+',');
+							converti[is][js]=tempo[indice];
+							js++;
+						}
+					}
+					
+					cerca=cercaStringa("<measure",text);
+					//if (cerca) System.out.println(text.toString());	
+	
+					if (cerca) {
+						if (Autore==1) scrivi.println("Chopin");
+						if (Autore==2) scrivi.println("Beethoven");
+						if (Autore==3) scrivi.println("Mozart");
+						//converti[is][js]=1;
+						is++;
+						js=0;
+						scrivi.print(text.substring(5,24)+',');
+						
+						i_start=21;
+						i_end=22;
+					    test1:
+						for (int i=22; i<text.length(); i++) {
+							if (text.charAt(i)=='"') {
+								i_end=i;
+								break test1;
+							}						
+						}
+						
+						converti[is][js]=-Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<divisions",text);
+					if (cerca) {
+	
+						scrivi.print("div"+',');
+						converti[is][js]=9988;
+						js++;
+						
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}
+							
+						}
+						scrivi.print(text.substring(i_start,i_end)+',');
+						converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<fifths",text);
+					if (cerca) {
+	
+						scrivi.print("quinta"+',');
+						converti[is][js]=8899;
+						js++;
+						
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}
+							
+						}
+						scrivi.print(text.substring(i_start,i_end)+',');
+						converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<actual-notes",text);
+					if (cerca) {
+	
+						scrivi.print("Tuplets"+',');
+						converti[is][js]=9888;
+						js++;
+						
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}
+							
+						}
+						scrivi.print(text.substring(i_start,i_end)+',');
+						converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<normal-notes",text);
+					if (cerca) {
+	
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}
+							
+						}
+						scrivi.print(text.substring(i_start,i_end)+',');
+						converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<beats",text);
+					if (cerca) {
+	
+						scrivi.print("beats"+',');
+						converti[is][js]=8999;
+						js++;
+						
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}
+							
+						}
+						scrivi.print(text.substring(i_start,i_end)+',');
+						converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<beat-type",text);
+					if (cerca) {
+	
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}
+							
+						}
+						scrivi.print(text.substring(i_start,i_end)+',');
+						converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<mode",text);
+					if (cerca) {
+	
+						scrivi.print("modo"+',');
+						converti[is][js]=8887;
+						js++;
+						
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}
+							
+						}
+						scrivi.print(text.substring(i_start,i_end)+',');
+						if (text.substring(i_start,i_end).equals("major")) converti[is][js]=1; 
+						if (text.substring(i_start,i_end).equals("minor")) converti[is][js]=-1; 
+						js++;
+					}
+					
+					cerca=cercaStringa("<per-minute",text);
+					if (cerca) {
+	
+						scrivi.print("Tempo"+',');
+						converti[is][js]=9999;
+						js++;
+						
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}
+							
+						}
+						last_tempo=text.substring(i_start,i_end);
+						scrivi.print(last_tempo+',');
+						converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<backup",text);
+		
+					if (cerca) {
+						scrivi.print(text.substring(7,13)+',');
+	
+						js_pre=js;;
+						if (js>j_max) j_max=js;
+						is++;
+						js=0;
+						converti[is][0]=converti[is-1][0];
+						js++;
+						converti[is][js]=5555;
+						js++;
+					}
+	
+					cerca=cercaStringa("<forward",text);
+		
+					if (cerca) {
+						scrivi.print(text.substring(7,14)+',');
+						if (converti[is][js-2]==5555) {
+							converti[is][0]=0;
+							converti[is][1]=0;
+							is--;
+							js=js_pre;
+							converti[is][js]=7777;
+						} else {
+							converti[is][js]=7777;
+							js++;
+						}
+					}
+	
+					cerca=cercaStringa("<rest/",text);
+	
+					if (cerca) {
+						scrivi.print("0"+',');
+						converti[is][js]=0;
+						js++;
+					}
+					
+					cerca=cercaStringa("<duration",text);
+					if (cerca) {
+	
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}
+							
+						}
+						scrivi.print(text.substring(i_start,i_end)+',');
+						if (converti[is][js]!=7777) {
+							converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+							js++;
+						}
+					}
+					
+					cerca=cercaStringa("<step",text);
+					if (cerca) {
+	
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}						
+						}
+						scrivi.print("n,");
+						converti[is][js]=6666;
+						js++;
+						scrivi.print(text.substring(i_start,i_end)+',');
+						if (text.substring(i_start,i_end).equals("A")) converti[is][js]=21; 
+						if (text.substring(i_start,i_end).equals("B")) converti[is][js]=23; 
+						if (text.substring(i_start,i_end).equals("C")) converti[is][js]=12; 
+						if (text.substring(i_start,i_end).equals("D")) converti[is][js]=14; 
+						if (text.substring(i_start,i_end).equals("E")) converti[is][js]=16; 
+						if (text.substring(i_start,i_end).equals("F")) converti[is][js]=17; 
+						if (text.substring(i_start,i_end).equals("G")) converti[is][js]=19; 
+						
+						js++;
+					}
+					
+					cerca=cercaStringa("<alter",text);
+					if (cerca) {
+	
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}						
+						}
+						scrivi.print("a,");
+						converti[is][js]=3333;
+						js++;
+						scrivi.print(text.substring(i_start,i_end)+',');
+						converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<octave",text);
+					if (cerca) {
+	
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}						
+						}
+						scrivi.print("o,");
+						converti[is][js]=4444;
+						js++;
+						scrivi.print(text.substring(i_start,i_end)+',');
+						converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<staccato/",text);
+	
+					if (cerca) {
+						scrivi.print(text.substring(13,21)+',');
+						converti[is][js]=6665;
+						js++;
+					}
+					
+					cerca=cercaStringa("<chord/",text);
+	
+					if (cerca) {
+						scrivi.print(text.substring(9,14)+',');
+						converti[is][js]=8888;
+						js++;
+					}
+					
+					cerca=cercaStringa("<voice",text);
+					if (cerca) {
+	
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}						
+						}
+						scrivi.print("v,");
+						converti[is][js]=7788;
+						js++;
+						scrivi.print(text.substring(i_start,i_end)+',');
+						converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<staff>",text);
+					if (cerca) {
+						
+						staff=true;
+	
+						i_start=0;
+						i_end=0;
+					    test:
+						for (int i=0; i<text.length(); i++) {
+							if (text.charAt(i)=='>') 
+								i_start=i+1;
+							if ((text.charAt(i)=='<')&&(i_start>0)) {
+								i_end=i;
+								break test;
+							}						
+						}
+						scrivi.print("s,");
+						converti[is][js]=7778;
+						js++;
+						scrivi.print(text.substring(i_start,i_end)+',');
+						converti[is][js]=Integer.parseInt (text.substring(i_start,i_end));
+						js++;
+					}
+					
+					cerca=cercaStringa("<tied type",text);
+	
+					if (cerca) {
+						scrivi.print(text.substring(11,28)+',');
+						if (text.substring(22,27).equals("start")) converti[is][js]=2222;
+						else converti[is][js]=2223;
+						js++;
+					}
+					
+					if (js>j_max) j_max=js;
+				}
+			}
+			i_max=is;
+			i_new=i_max;
+			input.close();
+			scrivi.close();
+			
+		} catch (IOException ioException) {
+		}
+	}
+}
+
+public static boolean cercaStringa(String sottostringa, String text) {
+    boolean cerca = false;
+
+    // calcola lunghezza di stringa e sottostringa
+    // la differenza sarà condizione di terminazione per il ciclo for
+    int max = text.length() - sottostringa.length();
+
+    // ricerca la sottostringa ciclando il contenuto di quest'ultima
+    test:
+    for (int i = 0; i <= max; i++) {
+      int n = sottostringa.length();
+      int j = i;
+      int k = 0;
+      while (n-- != 0) {
+        if (text.charAt(j++) != sottostringa.charAt(k++)) {
+          continue test;
+        }
+      }
+
+      cerca = true;
+      break test;
+    }
+    return cerca;
+}
+
+//-------------------- PRIMA SCANSIONE (DIVISIONE, TONALITA', METRO, TEMPI, PAUSE, NOTE, BACKUP)------------------------ 
+
+public static void primaScansione() {
+	int i, j;
+	int quinta, modo;
+	int quante_note, quali_note;
+	int indice;
+	
+		i_f=0;
+		for (i=1; i<=i_max; i++) {
+			for (j=0; j<=j_max; j++) {
+							
+				if (converti[i][j]==9988) {
+					Divisione=converti[i][j+1];
+					converti[i][j]=1111;
+					converti[i][j+1]=1111;
+				}
+				
+				if (converti[i][j]==8899) {
+					quinta=(int)converti[i][j+1];
+					features[i_f][814]=quinta;
+					if (quinta==-6) quinta=6;
+					if (quinta==-7) quinta=5;
+					if (quinta>6) quinta=-5;
+					modo=(int)converti[i][j+3];
+		    		System.out.println("quinta = "+quinta+" modo = "+modo);
+		    		
+					features[i_f][quinta+5]=features[i_f][quinta+5]+1;
+					features[i_f][813]=modo;
+		    		//System.out.println("i_f = "+i_f+" features[i_f][quinta+5] = "+features[i_f][quinta+5]);
+					converti[i][j]=1111;
+					converti[i][j+1]=1111;
+					converti[i][j+2]=1111;
+					converti[i][j+3]=1111;
+				}
+	
+				if (converti[i][j]==8999) {
+					quante_note=(int)converti[i][j+1];
+					quali_note=(int)converti[i][j+2];
+		    		System.out.println("quante_note = "+quante_note+" quali_note = "+quali_note);
+		    		
+		    		indice=12;
+		    		if (quante_note<9) indice=(quante_note-2)*3+12+(quali_note/4);	    		
+		    		if (quante_note==6) indice=(quante_note-2)*3+12+(quali_note/8);
+		    		
+		    		if (quante_note>=9) indice=(quante_note/3+3)*3+12+(quali_note/8);
+		    		if (quante_note==21) indice=(quante_note/3+2)*3+12+(quali_note/8);
+		    		
+		    		if (quante_note!=1) features[i_f][indice]=features[i_f][indice]+1;
+					//if (features[i_f][10]==1) System.out.println(converti_integrato[i][0]+" 0 i = "+i+" indice = "+indice);
+		    		
+					converti[i][j]=1111;
+					converti[i][j+1]=1111;
+					converti[i][j+2]=1111;
+				}
+	
+				if (converti[i][j]==9999) {
+					last_temp=converti[i][j+1];
+					//else last_temp=tempo[i];
+					if (converti[i][j+2]==7778) {
+						converti[i][j+2]=1111;
+						converti[i][j+3]=1111;
+					}
+				}
+				if (converti[i][j]==5555) {
+					//if (converti[i][j+2]==7777) {
+						converti[i][j]=1111;
+						converti[i][j+1]=1111;
+					//} else i_new++;
+				}
+				if (converti[i][j]==7777) {
+					converti[i][j]=1111;
+					converti[i][j+1]=1111;
+				}
+				if (converti[i][j]==6666) {
+					if (converti[i][j+2]==3333) {
+						converti[i][j+1]=converti[i][j+1]+converti[i][j+3]+12*converti[i][j+5];						
+						//converti[i][j+1]=1111;
+						converti[i][j+2]=1111;
+						converti[i][j+3]=1111;
+						converti[i][j+4]=1111;
+						converti[i][j+5]=1111;
+					}
+					if (converti[i][j+2]==4444) {
+						converti[i][j+1]=converti[i][j+1]+12*converti[i][j+3];
+						//converti[i][j+1]=1111;
+						converti[i][j+2]=1111;
+						converti[i][j+3]=1111;
+					}
+				}
+				
+			}
+			i_f=i/8;
+			
+		}
+}
+
+//-------------------- DIVIDI BACKUP IN BATTUTE (MANO DESTRA E SINISTRA)------------------------ 
+
+
+public static void dividiBattute() {
+	int i, j, i_new, j_new, new_j_max=0;
+	
+	try {
+		
+		FileOutputStream prova4 = new FileOutputStream("C:/Users/Pino/Dati/Musica/Chopin 2/prova4.txt");
+		PrintStream scrivi4 = new PrintStream(prova4);
+		
+    	
+		FileOutputStream prova7 = new FileOutputStream("C:/Users/Pino/Dati/Musica/Chopin 2/prova7.txt");
+    	PrintStream scrivi7 = new PrintStream(prova7);
+    	 
+		System.out.println("staff "+staff);
+		
+    	if (staff) {
+        	
+    		boolean staff_2=false;
+
+    		i_new=0;
+	    	j_new=0;
+		
+	    	for (i=1; i<=i_max; i++) {
+	    		int j_forward=0;
+	    		while ((converti[i][j_forward]!=7778)&&(j_forward<j_max)) j_forward++;
+	    		
+	    		if ((converti[i][j_forward]==7778)&&(converti[i][j_forward+1]==2)) staff_2=true;
+	    		
+	    		if ((converti[i][j_forward]==7778)&&(converti[i][j_forward+1]==1)) {
+	    			
+    	   			converti_new[i_new][0]=converti[i][0];
+        			
+        			j_new=1;
+        			if ((converti[i][1]!=9999)&&(i>1)) {
+						converti_new[i_new][1]=9999;
+						converti_new[i_new][2]=last_temp;
+						j_new=3;
+					}
+	    	   		for (j=1; j<=j_max; j++) {
+		    	   		if ((converti[i][j]==7778)&&(converti[i][j+1]==1)) {
+		    	   			converti[i][j]=1111;
+		    	   			converti[i][j+1]=1111;
+		    	   		}
+		    	   		if (converti[i][j]==7788) {
+		    	   			converti[i][j]=1111;
+		    	   			converti[i][j+1]=1111;
+		    	   		}
+	    	   			if ((converti[i][j]!=1111)&&(converti[i][j]!=8889)) {
+	    	   				converti_new[i_new][j_new]=converti[i][j];
+	    	   				j_new++;
+	    	   				if (converti[i][j]==9999) last_temp=converti[i][j+1];
+	    	   				
+	    	   			}
+	    	   		}
+	    	   		i_new++;
+	    		} else if ((converti[i][j_forward]!=7778)&&(staff_2==false)) {
+	    			
+    	   			converti_new[i_new][0]=converti[i][0];
+        			
+        			j_new=1;
+        			if ((converti[i][1]!=9999)&&(i>1)) {
+						converti_new[i_new][1]=9999;
+						converti_new[i_new][2]=last_temp;
+						j_new=3;
+					}
+	    	   		for (j=1; j<=j_max; j++) {
+		    	   		if ((converti[i][j]==7778)&&(converti[i][j+1]==1)) {
+		    	   			converti[i][j]=1111;
+		    	   			converti[i][j+1]=1111;
+		    	   		}
+		    	   		if (converti[i][j]==7788) {
+		    	   			converti[i][j]=1111;
+		    	   			converti[i][j+1]=1111;
+		    	   		}
+	    	   			if ((converti[i][j]!=1111)&&(converti[i][j]!=8889)) {
+	    	   				converti_new[i_new][j_new]=converti[i][j];
+	    	   				j_new++;
+	    	   				if (converti[i][j]==9999) last_temp=converti[i][j+1];
+	    	   				
+	    	   			}
+	    	   		}
+	    	   		
+	    	   		i_new++;
+	    	   		
+	    	   		int i_forward=i+1;
+	    	   		while ((converti[i][0]!=converti[i_forward][0])&&(i_forward<i_max)) i_forward++;
+	    	   		
+	    	   		while (converti[i][0]==converti[i_forward][0]) {
+			    		j_forward=0;
+			    		while ((converti[i_forward][j_forward]!=7778)&&(j_forward<j_max)) j_forward++;
+			    		
+			    		if ((converti[i_forward][j_forward]==7778)&&(converti[i_forward][j_forward+1]==1)) {
+			    			
+		    	   			converti_new[i_new][0]=converti[i_forward][0];
+		        			
+		        			j_new=1;
+			        		if (converti[i_forward][1]!=9999) {
+								converti_new[i_new][1]=9999;
+								converti_new[i_new][2]=converti_new[i_new-1][2];
+								j_new=3;
+							}
+			    	   		for (j=1; j<=j_max; j++) {
+				    	   		if ((converti[i_forward][j]==7778)&&(converti[i_forward][j+1]==1)) {
+				    	   			converti[i_forward][j]=1111;
+				    	   			converti[i_forward][j+1]=1111;
+				    	   		}
+				    	   		if (converti[i_forward][j]==7788) {
+				    	   			converti[i_forward][j]=1111;
+				    	   			converti[i_forward][j+1]=1111;
+				    	   		}
+			    	   			if ((converti[i_forward][j]!=1111)&&(converti[i_forward][j]!=8889)) {
+			    	   				converti_new[i_new][j_new]=converti[i_forward][j];
+			    	   				j_new++;
+			    	   				if (converti[i_forward][j]==9999) last_temp=converti[i_forward][j+1];
+			    	   				
+			    	   			}
+			    	   		}
+			    	   		i_new++;
+			    		}
+		    	   		i_forward++;
+		    		}
+	    		}
+	    	}
+	    	for (i=1; i<=i_max; i++) {
+	    		int j_forward=0;
+	    		while ((converti[i][j_forward]!=7778)&&(j_forward<j_max)) j_forward++;
+	    		
+	    		if ((converti[i][j_forward]==7778)&&(converti[i][j_forward+1]==2)) {
+	    			
+	
+						converti_new[i_new][0]=converti[i][0];
+	
+	        			int i_forward=0;
+	        			while (converti_new[i_forward][0]!=converti_new[i_new][0]) i_forward++;
+	
+	        			j_new=1;
+	        			if (converti_new[i_forward][1]==9999) {
+	        				converti_new[i_new][1]=9999;
+	        				converti_new[i_new][2]=converti_new[i_forward][2];
+	        				j_new=3;
+	        			}
+	
+			    	   	for (j=1; j<=j_max; j++) {
+			    	   		if ((converti[i][j]==7778)&&(converti[i][j+1]==2)) {
+			    	   			converti[i][j]=1111;
+			    	   			converti[i][j+1]=1111;
+			    	   		}
+			    	   		if (converti[i][j]==7788) {
+			    	   			converti[i][j]=1111;
+			    	   			converti[i][j+1]=1111;
+			    	   		}
+			    	   		
+							if ((converti[i][j]!=1111)&&(converti[i][j]!=8889)) {
+			    	   			converti_new[i_new][j_new]=converti[i][j];
+			    	   			j_new++;
+							 }
+			    	   	}
+			    	   	
+		    	   		i_forward=i+1;
+		    	   		while ((converti[i][0]!=converti[i_forward][0])&&(i_forward<i_max)) i_forward++;
+			    	   	
+
+						if (converti[i][0]==converti[i_forward][0]) {
+
+		    	   			i_new++;
+
+							converti_new[i_new][0]=converti[i_forward][0];
+	
+		        			j_new=1;
+		        			if ((converti[i_forward][1]!=9999)&&(i_forward>1)) {
+								converti_new[i_new][1]=9999;
+								converti_new[i_new][2]=converti_new[i_new-1][2];
+								j_new=3;
+							}
+			    	   		for (j=1; j<=j_max; j++) {
+				    	   		if (converti[i_forward][j]==7778) {
+				    	   			converti[i_forward][j]=1111;
+				    	   			converti[i_forward][j+1]=1111;
+				    	   		}
+				    	   		if (converti[i_forward][j]==7788) {
+				    	   			converti[i_forward][j]=1111;
+				    	   			converti[i_forward][j+1]=1111;
+				    	   		}
+			    	   			if ((converti[i_forward][j]!=1111)&&(converti[i_forward][j]!=8889)) {
+			    	   				converti_new[i_new][j_new]=converti[i_forward][j];
+			    	   				j_new++;
+			    	   				if (converti[i_forward][j]==9999) last_temp=converti[i_forward][j+1];
+			    	   				
+			    	   			}
+			    	   		}
+			    	   	}
+		    	   		
+		    	   		i_new++;
+		    	}
+		    }
+			System.out.println("i new = "+i_new);
+			
+			for (int ii=0; ii<=i_new; ii++) {
+				for (int jj=0; jj<j_max; jj++) {
+					scrivi7.print(converti_new[ii][jj]+" ");
+				}
+				scrivi7.println("");
+			}
+			
+			
+			int i_voci=0;
+			int i_integrato=0;
+			for (i=1; i<=i_max; i++) {
+				if ((converti_new[i][0]==converti_new[i-1][0])&&(converti_new[i][0]!=0)) {
+					analisi_voci[i_voci][0]=converti_new[i-1][0];
+					for (j=1; j<j_max; j++) {
+						analisi_voci[i_voci][j]=converti_new[i-1][j];
+						}
+					i_voci++;
+				} else if (i_voci!=0) {	// Analizza le voci
+					
+					// Inserisci in analisi_voci l'ultima riga trovata
+					
+					for (j=0; j<j_max; j++) analisi_voci[i_voci][j]=converti_new[i-1][j];
+					
+					// Analisi delle voci. Più voci diventano un'unica voce
+					
+					// resetta il buffer modifica_voci
+					
+					for (int ii=0; ii<=i_voci; ii++) {
+						for (int jj=1; jj<1000; jj++) {
+							modifica_voci[ii][jj]=0;
+						}
+					}
+					
+					// Cerca la durata minima tra tutte le note e le pause delle voci
+					
+					int min_durata=(int)Divisione;
+					for (int ii=0; ii<=i_voci; ii++) {
+						for (int jj=0; jj<j_max; jj++) {
+							if ((analisi_voci[ii][jj]==6666)&&(analisi_voci[ii][jj+2]<min_durata)) min_durata=(int)analisi_voci[ii][jj+2];
+							if ((analisi_voci[ii][jj]==0)&&(analisi_voci[ii][jj+1]!=0)&&(analisi_voci[ii][jj+1]<min_durata)) min_durata=(int)analisi_voci[ii][jj+1];
+						}
+					}
+
+					// Modifica le voci prima dell'integrazione
+					
+					for (int ii=0; ii<=i_voci; ii++) {
+						modifica_voci[ii][0]=analisi_voci[ii][0];
+						modifica_voci[ii][1]=analisi_voci[ii][1];
+						modifica_voci[ii][2]=analisi_voci[ii][2];
+						int j_voci=3;
+						
+						for (int jj=3; jj<j_max; jj++) {
+							if (analisi_voci[ii][jj]==6666) {
+								int rapporto=(int)analisi_voci[ii][jj+2]/min_durata;
+								for (int j1=1; j1<=rapporto; j1++) {
+									if(j1==1) modifica_voci[ii][j_voci]=6666;
+									else modifica_voci[ii][j_voci]=6667;
+									
+									j_voci++;
+	
+									modifica_voci[ii][j_voci]=analisi_voci[ii][jj+1];
+									j_voci++;
+	
+									modifica_voci[ii][j_voci]=min_durata;
+									j_voci++;
+								}
+							}
+							if ((analisi_voci[ii][jj]==0)&&(analisi_voci[ii][jj+1]!=0)) {
+								int rapporto=(int)analisi_voci[ii][jj+1]/min_durata;
+								for (int j1=1; j1<=rapporto; j1++) {
+									modifica_voci[ii][j_voci]=0;								
+									j_voci++;
+	
+									modifica_voci[ii][j_voci]=min_durata;
+									j_voci++;
+								}
+							}
+						}
+						if (new_j_max<j_voci) new_j_max=j_voci;
+					}
+					
+
+					// Integrazione di più voci in un'unica voce
+					
+					new_measure[0][0]=modifica_voci[0][0];
+					new_measure[0][1]=modifica_voci[0][1];
+					new_measure[0][2]=modifica_voci[0][2];
+					int j_measure=3;
+					int j_voce1=3;
+					int j_voce2=3;
+					int j_voce3=3;
+					int j_voce4=3;
+					int ii=0;
+					if (i_voci>4) System.out.println("i_voci= "+i_voci);
+					
+					// Integra due voci
+					
+					if (i_voci==1) {
+						
+						boolean end=false;
+						
+						while ((!end)&&(j_measure<new_j_max))  {
+							while ((modifica_voci[ii][j_voce1]!=0)&&(modifica_voci[ii][j_voce1]!=6666)&&(modifica_voci[ii][j_voce1]!=6667)&&(j_voce1<new_j_max)) j_voce1++;
+							while ((modifica_voci[ii+1][j_voce2]!=0)&&(modifica_voci[ii+1][j_voce2]!=6666)&&(modifica_voci[ii+1][j_voce2]!=6667)&&(j_voce2<new_j_max)) j_voce2++;
+
+							if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								j_voce2++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								j_voce1++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+							}	
+							if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)) end=true;
+
+						}
+						while ((modifica_voci[ii][j_voce1]!=0)&&(j_voce1<new_j_max)) {							
+							if (modifica_voci[ii][j_voce1]!=6667) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_measure++;
+							} else j_voce1=j_voce1+3;
+						}
+						while ((modifica_voci[ii+1][j_voce2]!=0)&&(j_voce2<new_j_max)) {							
+							if (modifica_voci[ii+1][j_voce2]!=6667) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_measure++;
+							} else j_voce2=j_voce2+3;
+						}
+						int j_integrato=0;
+						int jm=0; 
+						while (jm<j_measure) {
+							
+							if ((new_measure[0][jm]==0)&&(new_measure[0][jm+2]==0)) {
+								new_measure[0][jm+3]=new_measure[0][jm+3]+new_measure[0][jm+1];
+								jm=jm+2;
+							} else {
+								converti_integrato[i_integrato][j_integrato]=new_measure[0][jm];
+								scrivi4.print(converti_integrato[i_integrato][j_integrato]+" ");
+								jm++;
+								j_integrato++;
+							}
+						}
+						if (j_integrato>j_max_integrato) j_max_integrato=j_integrato;
+		        		scrivi4.println("");
+						i_integrato++;
+
+					}
+					
+					// Integra tre voci
+					
+					if (i_voci==2) {
+						
+						boolean end=false;
+						
+						while ((!end)&&(j_measure<new_j_max))  {
+							while ((modifica_voci[ii][j_voce1]!=0)&&(modifica_voci[ii][j_voce1]!=6666)&&(modifica_voci[ii][j_voce1]!=6667)&&(j_voce1<new_j_max)) j_voce1++;
+							while ((modifica_voci[ii+1][j_voce2]!=0)&&(modifica_voci[ii+1][j_voce2]!=6666)&&(modifica_voci[ii+1][j_voce2]!=6667)&&(j_voce2<new_j_max)) j_voce2++;
+							while ((modifica_voci[ii+2][j_voce3]!=0)&&(modifica_voci[ii+2][j_voce3]!=6666)&&(modifica_voci[ii+2][j_voce3]!=6667)&&(j_voce3<new_j_max)) j_voce3++;
+
+							if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce1++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce2++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce3++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								if (modifica_voci[ii+1][j_voce2]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								if (modifica_voci[ii+1][j_voce2]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								if (new_measure[ii][j_measure]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*new_measure[ii][j_measure]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*new_measure[ii][j_measure]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<1000000) new_measure[ii][j_measure]=1000000*new_measure[ii][j_measure]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (new_measure[ii][j_measure]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+2][j_voce3]+new_measure[ii][j_measure];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce1++;
+								j_voce3++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce2++;
+								j_voce3++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce2++;
+								j_voce3++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce3++;
+								j_measure++;
+								j_voce1++;
+								j_voce3++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce3++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce2++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce2++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce3++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce1++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce1++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								//System.out.println(modifica_voci[ii][0]+" "+j_voce1+" "+modifica_voci[ii][j_voce1]+" "+j_voce2+" "+modifica_voci[ii+1][j_voce2]+" "+j_voce3+" "+modifica_voci[ii+2][j_voce3]);
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)) {
+								//if (modifica_voci[ii][0]==-72) System.out.println(modifica_voci[ii][0]+" "+j_voce1+" "+modifica_voci[ii][j_voce1]+" "+j_voce2+" "+modifica_voci[ii+1][j_voce2]+" "+j_voce3+" "+modifica_voci[ii+2][j_voce3]+" "+j_measure);
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							}
+							if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)) end=true;
+							if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)) end=true;
+							if ((modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)) end=true;
+
+						}
+						
+						while ((modifica_voci[ii][j_voce1]!=0)&&(j_voce1<new_j_max)) {	
+							if (modifica_voci[ii][j_voce1]!=6667) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_measure++;
+							} else j_voce1=j_voce1+3;
+						}
+						while ((modifica_voci[ii+1][j_voce2]!=0)&&(j_voce2<new_j_max)) {							
+							if (modifica_voci[ii+1][j_voce2]!=6667) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_measure++;
+							} else j_voce2=j_voce2+3;
+						}
+						while ((modifica_voci[ii+2][j_voce3]!=0)&&(j_voce3<new_j_max)) {
+							if (modifica_voci[ii+2][j_voce3]!=6667) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce3++;
+								j_measure++;
+							} else j_voce3=j_voce3+3;
+						}
+						int j_integrato=0;
+						int jm=0; 
+						while (jm<j_measure) {
+							
+							if ((new_measure[0][jm]==0)&&(new_measure[0][jm+2]==0)) {
+								new_measure[0][jm+3]=new_measure[0][jm+3]+new_measure[0][jm+1];
+								jm=jm+2;
+							} else {
+								converti_integrato[i_integrato][j_integrato]=new_measure[0][jm];
+								scrivi4.print(converti_integrato[i_integrato][j_integrato]+" ");
+								jm++;
+								j_integrato++;
+							}
+						}
+						if (j_integrato>j_max_integrato) j_max_integrato=j_integrato;
+		        		scrivi4.println("");
+						i_integrato++;
+						
+					}
+					
+					// Integra 4 voci
+					
+					if (i_voci==3) {
+						
+						boolean end=false;
+
+						while ((!end)&&(j_measure<new_j_max))  {
+
+							while ((modifica_voci[ii][j_voce1]!=0)&&(modifica_voci[ii][j_voce1]!=6666)&&(modifica_voci[ii][j_voce1]!=6667)&&(j_voce1<new_j_max)) j_voce1++;
+							while ((modifica_voci[ii+1][j_voce2]!=0)&&(modifica_voci[ii+1][j_voce2]!=6666)&&(modifica_voci[ii+1][j_voce2]!=6667)&&(j_voce2<new_j_max)) j_voce2++;
+							while ((modifica_voci[ii+2][j_voce3]!=0)&&(modifica_voci[ii+2][j_voce3]!=6666)&&(modifica_voci[ii+2][j_voce3]!=6667)&&(j_voce3<new_j_max)) j_voce3++;
+							while ((modifica_voci[ii+3][j_voce4]!=0)&&(modifica_voci[ii+3][j_voce4]!=6666)&&(modifica_voci[ii+3][j_voce4]!=6667)&&(j_voce4<new_j_max)) j_voce4++;
+	
+							if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]!=0)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+3][j_voce4];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+3][j_voce4];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+						} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								if (new_measure[ii][j_measure]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<1000000) new_measure[ii][j_measure]=1000000*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (new_measure[ii][j_measure]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+								}
+								if (new_measure[ii][j_measure]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<1000000) new_measure[ii][j_measure]=1000000*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (new_measure[ii][j_measure]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+								}
+								if (new_measure[ii][j_measure]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<1000000) new_measure[ii][j_measure]=1000000*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (new_measure[ii][j_measure]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii+1][j_voce2]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+								}
+								if (new_measure[ii][j_measure]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<1000000) new_measure[ii][j_measure]=1000000*new_measure[ii][j_measure]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (new_measure[ii][j_measure]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+3][j_voce4]+new_measure[ii][j_measure];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+								}
+								if (new_measure[ii][j_measure]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*new_measure[ii][j_measure]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*new_measure[ii][j_measure]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<1000000) new_measure[ii][j_measure]=1000000*new_measure[ii][j_measure]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (new_measure[ii][j_measure]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+new_measure[ii][j_measure];
+									else if (new_measure[ii][j_measure]<1000000) new_measure[ii][j_measure]=1000000*modifica_voci[ii+2][j_voce3]+new_measure[ii][j_measure];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+2][j_voce3]) {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+2][j_voce3];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii][j_voce1]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+modifica_voci[ii][j_voce1];
+									else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+modifica_voci[ii][j_voce1];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii+2][j_voce3]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+2][j_voce3];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii+2][j_voce3]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+2][j_voce3];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii+2][j_voce3]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+2][j_voce3];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii+2][j_voce3]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+2][j_voce3];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii+1][j_voce2]>modifica_voci[ii+3][j_voce4]) {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+3][j_voce4];
+								}
+								else {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+1][j_voce2];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii+2][j_voce3]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii+2][j_voce3]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii+2][j_voce3]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+2][j_voce3]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii+2][j_voce3]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+									else if (modifica_voci[ii+2][j_voce3]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+2][j_voce3];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								if (modifica_voci[ii+3][j_voce4]>modifica_voci[ii+1][j_voce2]) {
+									if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+1][j_voce2];
+									else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+3][j_voce4]+modifica_voci[ii+1][j_voce2];
+								}
+								else {
+									if (modifica_voci[ii+3][j_voce4]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+3][j_voce4];
+									else if (modifica_voci[ii+3][j_voce4]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii+3][j_voce4];
+								}
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce3++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce2++;
+								j_voce3++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce3++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce2++;
+								j_voce3++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce2++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce2++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6666)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6666)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6666)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+								j_voce3++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_measure++;
+								j_voce1++;
+								j_voce3++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_measure++;
+								j_voce3++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce3++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+								j_voce4++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]==0)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+								j_voce2++;
+								j_voce4++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]==0)) {
+								new_measure[ii][j_measure]=0;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								j_voce2++;
+								j_voce3++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce2++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce2++;
+								j_voce3++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce2++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_measure++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+								j_voce3++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+							} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]==0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];								
+								j_voce1++;
+								j_voce2++;
+								j_voce4++;
+								j_measure++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]!=0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]!=0)) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];								
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+							} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)&&(modifica_voci[ii+2][j_voce3]==6667)&&(modifica_voci[ii+3][j_voce4]==6667)) {
+								new_measure[ii][j_measure]=0;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_voce2++;
+								j_voce3++;
+								j_voce4++;
+								j_measure++;
+						}
+								
+							if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)) end=true;
+							if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]==0)) end=true;
+							if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]==0)) end=true;
+							if ((modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)&&(modifica_voci[ii+2][j_voce3]==0)&&(modifica_voci[ii+2][j_voce3+1]==0)&&(modifica_voci[ii+3][j_voce4]==0)&&(modifica_voci[ii+3][j_voce4+1]==0)) end=true;
+
+							//System.out.println(modifica_voci[ii][0]+" "+j_voce1+" "+modifica_voci[ii][j_voce1]+" "+modifica_voci[ii][j_voce1+1]+" "+j_voce2+" "+modifica_voci[ii+1][j_voce2]+" "+modifica_voci[ii+1][j_voce2+1]+" "+j_voce3+" "+modifica_voci[ii+2][j_voce3]+" "+modifica_voci[ii+2][j_voce3+1]+" "+j_voce3+" "+modifica_voci[ii+3][j_voce4]+" "+modifica_voci[ii+3][j_voce4+1]+" "+j_measure);
+						}
+						while ((modifica_voci[ii][j_voce1]!=0)&&(j_voce1<new_j_max)) {	
+							if (modifica_voci[ii][j_voce1]!=6667) {
+								new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+								j_voce1++;
+								j_measure++;
+							} else j_voce1=j_voce1+3;
+						}
+						while ((modifica_voci[ii+1][j_voce2]!=0)&&(j_voce2<new_j_max)) {							
+							if (modifica_voci[ii+1][j_voce2]!=6667) {
+								new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+								j_voce2++;
+								j_measure++;
+							} else j_voce2=j_voce2+3;
+						}
+						while ((modifica_voci[ii+2][j_voce3]!=0)&&(j_voce3<new_j_max)) {
+							if (modifica_voci[ii+2][j_voce3]!=6667) {
+								new_measure[ii][j_measure]=modifica_voci[ii+2][j_voce3];
+								j_voce3++;
+								j_measure++;
+							} else j_voce3=j_voce3+3;
+						}
+						while ((modifica_voci[ii+3][j_voce4]!=0)&&(j_voce4<new_j_max)) {
+							if (modifica_voci[ii+3][j_voce4]!=6667) {
+								new_measure[ii][j_measure]=modifica_voci[ii+3][j_voce4];
+								j_voce4++;
+								j_measure++;
+							} else j_voce4=j_voce4+3;
+						}
+						int j_integrato=0;
+						int jm=0; 
+						while (jm<j_measure) {
+							
+							if ((new_measure[0][jm]==0)&&(new_measure[0][jm+2]==0)) {
+								new_measure[0][jm+3]=new_measure[0][jm+3]+new_measure[0][jm+1];
+								jm=jm+2;
+							} else {
+								converti_integrato[i_integrato][j_integrato]=new_measure[0][jm];
+								scrivi4.print(converti_integrato[i_integrato][j_integrato]+" ");
+								jm++;
+								j_integrato++;
+							}
+						}
+						if (j_integrato>j_max_integrato) j_max_integrato=j_integrato;
+		        		scrivi4.println("");
+						i_integrato++;
+					}	
+					i_voci=0;
+				} else {
+					
+					if (converti_new[i-1][0]!=0) {
+						converti_integrato[i_integrato][0]=converti_new[i-1][0];
+						scrivi4.print(converti_integrato[i_integrato][0]+" ");
+						converti_integrato[i_integrato][1]=converti_new[i-1][1];
+						scrivi4.print(converti_integrato[i_integrato][1]+" ");
+						converti_integrato[i_integrato][2]=converti_new[i-1][2];
+						scrivi4.print(converti_integrato[i_integrato][2]+" ");
+						
+						int j_integrato=3;
+						int j1=3;
+						while ((converti_new[i-1][j1]!=0)||(converti_new[i-1][j1+1]!=0)) {
+							if ((converti_new[i-1][j1]==7778)||(converti_new[i-1][j1]==7788)) {
+								j1=j1+2;
+							} else {
+								converti_integrato[i_integrato][j_integrato]=converti_new[i-1][j1];
+								scrivi4.print(converti_integrato[i_integrato][j_integrato]+" ");
+								j_integrato++;
+								j1++;
+							}
+						}
+						
+						if (j_integrato>j_max_integrato) j_max_integrato=j_integrato;
+		        		scrivi4.println("");
+						i_integrato++;
+					}
+				}
+				i_max_integrato=i_integrato;
+			}
+
+    	} else {		// No Staff. Integra comunque le voci
+    		i_new=0;
+    		for (i=1; i<=i_max; i++) {
+    			converti_new[i_new][0]=converti[i][0];
+
+				int j1=1;
+				j_new=1;
+    			if ((i>1)&&(converti[i][1]!=9999)) {
+    				int i_back=i_new-1;
+    				while ((converti_new[i_back][0]!=converti_new[i_new][0])&&(i_back>0)) i_back--;
+    				if (converti_new[i_back][0]!=converti_new[i_new][0]) {
+    					converti_new[i_new][1]=9999;
+    					converti_new[i_new][2]=last_temp;
+    				} else {
+    					converti_new[i_new][1]=9999;
+		        		converti_new[i_new][2]=converti_new[i_back][2];
+    				}
+    				j_new=3;
+    			}
+				while ((converti[i][j1]!=0)||(converti[i][j1+1]!=0)) {
+					if ((converti[i][j1]==7778)||(converti[i][j1]==7788)) {
+						j1=j1+2;
+					} else if (converti[i][j1]==1111) { j1=j1+1;
+					} else {
+						converti_new[i_new][j_new]=converti[i][j1];
+						if (converti[i][j1]==9999) last_temp=converti[i][j1+1];
+						j1++;
+						j_new++;
+					}
+				}
+				i_new++;
+    		}	
+				int i_voci=0;
+				int i_integrato=0;
+				for (i=1; i<=i_max; i++) {
+					if ((converti_new[i][0]==converti_new[i-1][0])&&(converti_new[i][0]!=0)) {
+						analisi_voci[i_voci][0]=converti_new[i-1][0];
+						for (j=1; j<j_max; j++) {
+							analisi_voci[i_voci][j]=converti_new[i-1][j];
+							}
+						i_voci++;
+					} else if (i_voci!=0) {	// Analizza le voci
+						// Inserisci in analisi_voci l'ultima riga trovata
+						
+						for (j=0; j<j_max; j++) analisi_voci[i_voci][j]=converti_new[i-1][j];
+						
+						// Analisi delle voci. Più voci diventano un'unica voce
+						
+						// resetta il buffer modifica_voci
+						
+						for (int ii=0; ii<=i_voci; ii++) {
+							for (int jj=1; jj<j_max; jj++) {
+								modifica_voci[ii][jj]=0;
+							}
+						}
+						
+						// Cerca la durata minima tra tutte le note e le pause delle voci
+						
+						int min_durata=(int)Divisione;
+						for (int ii=0; ii<=i_voci; ii++) {
+							for (int jj=0; jj<j_max; jj++) {
+								if ((analisi_voci[ii][jj]==6666)&&(analisi_voci[ii][jj+2]<min_durata)) min_durata=(int)analisi_voci[ii][jj+2];
+								if ((analisi_voci[ii][jj]==0)&&(analisi_voci[ii][jj+1]!=0)&&(analisi_voci[ii][jj+1]<min_durata)) min_durata=(int)analisi_voci[ii][jj+1];
+							}
+						}
+
+						// Modifica le voci prima dell'integrazione
+						
+						for (int ii=0; ii<=i_voci; ii++) {
+							modifica_voci[ii][0]=analisi_voci[ii][0];
+							modifica_voci[ii][1]=analisi_voci[ii][1];
+							modifica_voci[ii][2]=analisi_voci[ii][2];
+							int j_voci=3;
+							
+							for (int jj=3; jj<j_max; jj++) {
+								if (analisi_voci[ii][jj]==6666) {
+									int rapporto=(int)analisi_voci[ii][jj+2]/min_durata;
+									for (int j2=1; j2<=rapporto; j2++) {
+										if(j2==1) modifica_voci[ii][j_voci]=6666;
+										else modifica_voci[ii][j_voci]=6667;
+										
+										j_voci++;
+		
+										modifica_voci[ii][j_voci]=analisi_voci[ii][jj+1];
+										j_voci++;
+		
+										modifica_voci[ii][j_voci]=min_durata;
+										j_voci++;
+									}
+								}
+								if ((analisi_voci[ii][jj]==0)&&(analisi_voci[ii][jj+1]!=0)) {
+									int rapporto=(int)analisi_voci[ii][jj+1]/min_durata;
+									for (int j2=1; j2<=rapporto; j2++) {
+										modifica_voci[ii][j_voci]=0;								
+										j_voci++;
+		
+										modifica_voci[ii][j_voci]=min_durata;
+										j_voci++;
+									}
+								}
+								if (new_j_max<j_voci) new_j_max=j_voci;
+							}
+						}
+
+						// Integrazione di più voci in un'unica voce
+						
+						new_measure[0][0]=modifica_voci[0][0];
+						new_measure[0][1]=modifica_voci[0][1];
+						new_measure[0][2]=modifica_voci[0][2];
+						int j_measure=3;
+						int j_voce1=3;
+						int j_voce2=3;
+						int j_voce3=3;
+						int j_voce4=3;
+						int ii=0;
+						
+						// Integra due voci
+						
+						if (i_voci==1) {
+							
+							boolean end=false;
+							
+							while ((!end)&&(j_measure<new_j_max))  {
+								while ((modifica_voci[ii][j_voce1]!=0)&&(modifica_voci[ii][j_voce1]!=6666)&&(modifica_voci[ii][j_voce1]!=6667)&&(j_voce1<new_j_max)) j_voce1++;
+								while ((modifica_voci[ii+1][j_voce2]!=0)&&(modifica_voci[ii+1][j_voce2]!=6666)&&(modifica_voci[ii+1][j_voce2]!=6667)&&(j_voce2<new_j_max)) j_voce2++;
+
+								if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==0)) {
+									new_measure[ii][j_measure]=0;
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+								} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]!=0)) {
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+								} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]!=0)&&(modifica_voci[ii+1][j_voce2]==6666)) {
+									new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+									j_voce2++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+								} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6666)) {
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									if (modifica_voci[ii][j_voce1]>modifica_voci[ii+1][j_voce2]) {
+										if (modifica_voci[ii+1][j_voce2]<100) new_measure[ii][j_measure]=100*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+										else if (modifica_voci[ii+1][j_voce2]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii][j_voce1]+modifica_voci[ii+1][j_voce2];
+									}
+									else {
+										if (modifica_voci[ii][j_voce1]<100) new_measure[ii][j_measure]=100*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+										else if (modifica_voci[ii][j_voce1]<10000) new_measure[ii][j_measure]=10000*modifica_voci[ii+1][j_voce2]+modifica_voci[ii][j_voce1];
+									}
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+								} else if ((modifica_voci[ii][j_voce1]==6666)&&(modifica_voci[ii+1][j_voce2]==6667)) {
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+								} else if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii+1][j_voce2]==6667)) {
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									j_voce2++;
+								} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6666)) {
+									new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+								} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==0)) {
+									new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+									j_voce1++;
+									j_voce2++;
+									j_measure++;
+									j_voce1++;
+								} else if ((modifica_voci[ii][j_voce1]==6667)&&(modifica_voci[ii+1][j_voce2]==6667)) {
+									j_voce1=j_voce1+3;
+									j_voce2=j_voce2+3;
+								}	
+								if ((modifica_voci[ii][j_voce1]==0)&&(modifica_voci[ii][j_voce1+1]==0)||(modifica_voci[ii+1][j_voce2]==0)&&(modifica_voci[ii+1][j_voce2+1]==0)) end=true;
+
+							}
+							while ((modifica_voci[ii][j_voce1]!=0)&&(j_voce1<new_j_max)) {							
+								if (modifica_voci[ii][j_voce1]!=6667) {
+									new_measure[ii][j_measure]=modifica_voci[ii][j_voce1];
+									j_voce1++;
+									j_measure++;
+								} else j_voce1=j_voce1+3;
+							}
+							while ((modifica_voci[ii+1][j_voce2]!=0)&&(j_voce2<new_j_max)) {							
+								if (modifica_voci[ii+1][j_voce2]!=6667) {
+									new_measure[ii][j_measure]=modifica_voci[ii+1][j_voce2];
+									j_voce2++;
+									j_measure++;
+								} else j_voce2=j_voce2+3;
+							}
+
+							int j_integrato=0;
+							int jm=0; 
+							while (jm<j_measure) {
+								
+								if ((new_measure[0][jm]==0)&&(new_measure[0][jm+2]==0)) {
+									new_measure[0][jm+3]=new_measure[0][jm+3]+new_measure[0][jm+1];
+									jm=jm+2;
+								} else {
+									converti_integrato[i_integrato][j_integrato]=new_measure[0][jm];
+									scrivi4.print(converti_integrato[i_integrato][j_integrato]+" ");
+									jm++;
+									j_integrato++;
+								}
+							}
+							if (j_integrato>j_max_integrato) j_max_integrato=j_integrato;
+			        		scrivi4.println("");
+							i_integrato++;
+
+						}
+						i_voci=0;
+					} else {
+						
+						if (converti_new[i-1][0]!=0) {
+							converti_integrato[i_integrato][0]=converti_new[i-1][0];
+							scrivi4.print(converti_integrato[i_integrato][0]+" ");
+							converti_integrato[i_integrato][1]=converti_new[i-1][1];
+							scrivi4.print(converti_integrato[i_integrato][1]+" ");
+							converti_integrato[i_integrato][2]=converti_new[i-1][2];
+							scrivi4.print(converti_integrato[i_integrato][2]+" ");
+							
+							int j_integrato=3;
+							int j1=3;
+							while ((converti_new[i-1][j1]!=0)||(converti_new[i-1][j1+1]!=0)) {
+								if ((converti_new[i-1][j1]==7778)||(converti_new[i-1][j1]==7788)) {
+									j1=j1+2;
+								} else {
+									converti_integrato[i_integrato][j_integrato]=converti_new[i-1][j1];
+									scrivi4.print(converti_integrato[i_integrato][j_integrato]+" ");
+									j_integrato++;
+									j1++;
+								}
+							}
+							
+							if (j_integrato>j_max_integrato) j_max_integrato=j_integrato;
+			        		scrivi4.println("");
+							i_integrato++;
+						}
+					}
+				}
+		   // }
+			i_max_integrato=i_integrato;
+
+    	}
+ 		scrivi4.close();
+ 		scrivi7.close();
+    	
+	} catch (IOException ioException) {
+	}
+
+ }
+
+	
+//-------------------- SECONDA SCANSIONE (LEGATURE DI VALORE)------------------------ 
+
+public static void secondaScansione() {
+	int i, j;
+		
+	try {
+			
+		FileOutputStream prova6 = new FileOutputStream("C:/Users/Pino/Dati/Musica/Chopin 2/prova6.txt");
+		PrintStream scrivi6 = new PrintStream(prova6);
+		
+
+	for (i=1; i<=i_max; i++) {
+		for (j=0; j<=j_max; j++) {
+			
+			if (converti[i][j]==2222) {
+				converti[i][j]=1111;
+				
+				int j_back2=j-1;
+				while ((converti[i][j_back2]!=6666)&&(j_back2>0)) j_back2--; //cerca nota
+				int j_back2forward=j_back2+2;
+				while ((converti[i][j_back2forward]==1111)&&(j_back2forward<j_max)) j_back2forward++; //cerca durata
+				
+				int j_app=j+1;
+				boolean end=false;
+				while (!end) {
+					while ((converti[i][j_app]!=2223)&&(j_app<j_max)) j_app++;
+					if (j_app<j_max) {
+						if (converti[i][j_app+1]==8888) converti[i][j_app+1]=8889; // dopo una fine legatura non ci puà essere un accordo
+						int j_back=j_app-1;
+						while ((converti[i][j_back]!=6666)&&(j_back>0)) j_back--; //cerca nota
+						int j_backforward=j_back+2;
+						while ((converti[i][j_backforward]==1111)&&(j_backforward<j_max)) j_backforward++; //cerca durata
+						
+						if ((converti[i][j_back+1]==converti[i][j_back2+1])) {
+							
+							converti[i][j_back2forward]=converti[i][j_backforward]+converti[i][j_back2forward];
+							for (int j_forward=j_back; j_forward<=j_app; j_forward++) converti[i][j_forward]=1111;
+							if (converti[i][j_app+2]==8888) converti[i][j_app+2]=1111; // la fine di una legatura non può avere un accordo
+							
+
+							j_app++;
+							if ((converti[i][j_app]!=2222)||(j_app>=j_max)) end=true;
+							else converti[i][j_app]=1111;
+						} else if (j_app<j_max) { j_app++;
+						} else end=true;
+					}  else end=true;
+				}
+			}			
+			
+			if (converti[i][j]==2223) {
+				converti[i][j]=1111;		// è un'approssimazione. Esegue una pausa legata alla battuta precedente
+				if (converti[i][j+1]==8888) converti[i][j+1]=8889; // dopo una fine legatura non ci può essere un accordo
+				int j_app=j-1;		
+				while ((converti[i][j_app]!=6666)&&(j_app>0)) j_app--;
+				if (j_app>0) {
+					converti[i][j_app]=1111;
+					converti[i][j_app+1]=0;
+				}
+				if (converti[i][j]==2222) converti[i][j]=1111;
+			}
+			
+			if (((converti[i][j]==8888)||(converti[i][j]==8889))&&(converti[i][j+1]==1111)) {
+				converti[i][j]=1111;
+				
+				int j_forward=j+1;
+				while (((converti[i][j_forward]==1111)||(converti[i][j_forward]==0))&&(j_forward<j_max)) j_forward++;
+				if ((j_forward<j_max)&&(converti[i][j_forward]!=6666)) for (int jj=j; jj<=j_forward; jj++) converti[i][jj]=1111;		
+				
+			}	
+			
+		}
+		for (int j_p=0; j_p<j_max; j_p++) scrivi6.print(converti[i][j_p]+" ");
+		scrivi6.println("");
+	}
+		scrivi6.close();
+	} catch (IOException ioException) {
+	}
+}
+
+//-------------------- TERZA SCANSIONE (STACCATO/TUPLETS/ACCORDI)------------------------ 
+	
+public static void terzaScansione() {
+	int i, j;
+	int totale_accordi=0;
+		
+	try {
+		
+		FileOutputStream prova5 = new FileOutputStream("C:/Users/Pino/Dati/Musica/Chopin 2/prova5.txt");
+		PrintStream scrivi5 = new PrintStream(prova5);
+		
+	
+		for (i=0; i<=i_max; i++) {
+			for (j=0; j<=j_max; j++) {
+				if (converti[i][j]==9888) {
+					converti[i][j]=1111;
+					actual_notes=converti[i][j+1];
+					normal_notes=converti[i][j+2];
+					if ((actual_notes==2)&&(normal_notes==3)) features[0][771]=features[0][771]+1;
+					if ((actual_notes==3)&&(normal_notes==2)) features[0][772]=features[0][772]+1;
+					if ((actual_notes==4)&&(normal_notes==6)) features[0][773]=features[0][773]+1;
+					if ((actual_notes==5)&&(normal_notes==3)) features[0][774]=features[0][774]+1;
+					if ((actual_notes==5)&&(normal_notes==4)) features[0][775]=features[0][775]+1;
+					if ((actual_notes==5)&&(normal_notes==6)) features[0][776]=features[0][776]+1;
+					if ((actual_notes==7)&&(normal_notes==4)) features[0][777]=features[0][777]+1;
+					
+					converti[i][j+1]=1111;
+					converti[i][j+2]=1111;
+					int j_forward=j+3;
+					Tuplets++;
+					while ((converti[i][j_forward]!=9888)&&(j_forward<j_max)) j_forward++;	// cerca la successiva nota del Tuplet
+					converti[i][j_forward]=1111;
+					converti[i][j_forward+1]=1111;
+					converti[i][j_forward+2]=1111;
+					
+					for (int j_forward2=2; j_forward2<actual_notes; j_forward2++) {
+						j_forward=j_forward+3;
+						while ((converti[i][j_forward]!=9888)&&(j_forward<j_max))  j_forward++;	// cerca la successiva nota del Tuplet
+						converti[i][j_forward]=1111;
+						converti[i][j_forward+1]=1111;
+						converti[i][j_forward+2]=1111;
+					}
+					
+				}
+													
+				if ((converti[i][j]==8888)&&(converti[i][j+1]==6666)) {
+					totale_accordi++;
+					int j_back=j;
+					
+					while ((converti[i][j_back]!=6666)&&(j_back>0)) j_back--;
+					if (j_back>0) {
+						converti[i][j_back+1]=100*converti[i][j_back+1]+converti[i][j+2];
+						
+						
+						int j_backforward=j_back+2;
+						while (converti[i][j_backforward]==1111) j_backforward++;
+		
+						int j_forward=j+3;
+						while (converti[i][j_forward]==1111) j_forward++;
+						if (converti[i][j_forward]<converti[i][j_backforward]) converti[i][j_backforward]=converti[i][j_forward]; //durata
+		
+						for (int j_app=j; j_app<=j_forward; j_app++) converti[i][j_app]=1111;
+					} else converti[i][j]=1111; 	//System.out.println(" else i= "+i+" j= "+j+" converti j= "+converti[i][j]+" converti j+1= "+converti[i][j+1]);
+				} else if (((converti[i][j]==8888)||(converti[i][j]==8889))&&(converti[i][j+2]==0)) {
+							
+					int j_forward=j+1;
+					while (((converti[i][j_forward]==1111)||(converti[i][j_forward]==0))&&(j_forward<j_max)) j_forward++;
+					if (j_forward<j_max) for (int jj=j; jj<=j_forward; jj++) converti[i][jj]=1111;		
+
+				} else if (((converti[i][j]==8889))&&(converti[i][j+1]==6666)) {
+					int j_backward=j-1;
+					while (((converti[i][j_backward]!=0)&&(converti[i][j_backward]!=6666))&&(j_backward>0)) j_backward--;
+					if (converti[i][j_backward]==0) {
+						for (int j_app=j_backward; j_app<=j; j_app++) converti[i][j_app]=1111;
+					} else converti[i][j]=1111;
+				} 
+				
+				scrivi5.print(converti[i][j]+" ");
+			} 
+			scrivi5.println("");
+		}
+		System.out.println("terza scansione totale_accordi = "+totale_accordi);
+		
+		scrivi5.close();
+	
+	} catch (IOException ioException) {
+	}
+}
+	
+//-------------------- QUARTA E ULTIMA SCANSIONE (CONTA PAUSE/CONTA NOTE/CONTA INTERVALLI/TRASFERIMENTO IN PARTITURE)------------------------ 
+
+public static void quartaScansione() {
+	int i, j;
+	double tipo_pausa, tempo_pausa;
+	double tipo_nota, tempo_nota, f_nota;
+	int indice, andamento;
+	long tempo, nota, accordo, nota_precedente=0, totale_accordi=0,totale_pause=0,totale_note=0;
+	long[] note_accordo;
+	
+	try {
+			
+		FileOutputStream prova3 = new FileOutputStream("C:/Users/Pino/Dati/Musica/Chopin 2/prova3.txt");
+		PrintStream scrivi3 = new PrintStream(prova3);
+		
+		System.out.println("i_max_integrato = "+i_max_integrato);
+
+		ip=0;
+		jp=0;
+		jp_max=0;
+		
+		i_f=0;
+
+		for (i=0; i<=i_max_integrato; i++) {
+			
+
+			for (j=0; j<=j_max_integrato; j++) {
+
+				
+				if (converti_integrato[i][j]==6665) {
+					converti_integrato[i][j]=1111;
+					Staccato++;
+					features[i_f][770]=features[i_f][770]+1;
+				}
+				
+				if ((converti_integrato[i][j]==0)&&(converti_integrato[i][j+1]!=0)&&(converti_integrato[i][j+1]!=1111)) {
+					
+					totale_pause++;
+					
+					tipo_pausa=(float)converti_integrato[i][j+1]/Divisione;	// semibreve, minima, semiminima ...
+					int j_back=j;
+					while ((converti_integrato[i][j_back]!=9999)&&(j_back>0)) j_back--;
+					if (converti_integrato[i][j_back]!=9999) 	{
+						tempo_pausa=60*tipo_pausa/last_temp;
+						tempo=last_temp;
+					} else 	{
+						tempo_pausa=60*tipo_pausa/converti_integrato[i][j_back+1];
+						tempo=converti_integrato[i][j_back+1];
+					}
+					
+					indice=0;
+					andamento=0;
+					
+					if (tipo_pausa>=3) andamento=0;
+					else if (tipo_pausa>=1.5) andamento=1;
+					else if (tipo_pausa>=0.75) andamento=2;
+					else if (tipo_pausa>=0.375) andamento=3;
+					else if (tipo_pausa>=0.1875) andamento=4;
+					else if (tipo_pausa>=0.09375) andamento=5;
+					else andamento=6;
+					
+					if ((tempo>40)&&(tempo<=60)) indice=0+8*andamento;		// 8.Largo
+					if ((tempo>60)&&(tempo<=66)) indice=1+8*andamento;		// 7.Larghetto
+					if ((tempo>66)&&(tempo<=76)) indice=2+8*andamento;		// 6.Adagio
+					if ((tempo>76)&&(tempo<=108)) indice=3+8*andamento;		// 5.Andante
+					if ((tempo>108)&&(tempo<=120)) indice=4+8*andamento;	// 4.Moderato
+					if ((tempo>120)&&(tempo<=168)) indice=5+8*andamento;	// 3.Allegro
+					if ((tempo>168)&&(tempo<=200)) indice=6+8*andamento;	// 2.Presto
+					if ((tempo>200)&&(tempo<=208)) indice=7+8*andamento;	// 1.Prestissimo					
+					indice=indice+714;
+					features[i_f][indice]=features[i_f][indice]+1;
+
+				}
+				
+				if (converti_integrato[i][j]==6666) {
+
+					totale_note++;
+					
+					nota=converti_integrato[i][j+1];
+					int j_forward=j+2;
+					while (converti_integrato[i][j_forward]==1111) j_forward++;
+					tipo_nota=(float)converti_integrato[i][j_forward]/Divisione;	// semibreve, minima, semiminima ...
+					int j_back=j;
+					while ((converti_integrato[i][j_back]!=9999)&&(j_back>0)) j_back--;
+					if (converti_integrato[i][j_back]!=9999) 	{
+						tempo_nota=60*tipo_nota/last_temp;
+						tempo=last_temp;
+					} else 	{
+						tempo_nota=60*tipo_nota/converti_integrato[i][j_back+1];
+						tempo=converti_integrato[i][j_back+1];
+					}
+					if (nota<109) {
+						f_nota=nota/12;
+						long nota_mod12=nota-12*(int)f_nota;
+					
+						indice=0;
+						andamento=0;
+						
+						if (tipo_nota>=3) andamento=0;
+						else if (tipo_nota>=1.5) andamento=1;
+						else if (tipo_nota>=0.75) andamento=2;
+						else if (tipo_nota>=0.375) andamento=3;
+						else if (tipo_nota>=0.1875) andamento=4;
+						else if (tipo_nota>=0.09375) andamento=5;
+						else andamento=6;
+						
+						if ((tempo>40)&&(tempo<=60)) indice=0+8*andamento;		// 8.Largo
+						if ((tempo>60)&&(tempo<=66)) indice=1+8*andamento;		// 7.Larghetto
+						if ((tempo>66)&&(tempo<=76)) indice=2+8*andamento;		// 6.Adagio
+						if ((tempo>76)&&(tempo<=108)) indice=3+8*andamento;		// 5.Andante
+						if ((tempo>108)&&(tempo<=120)) indice=4+8*andamento;	// 4.Moderato
+						if ((tempo>120)&&(tempo<=168)) indice=5+8*andamento;	// 3.Allegro
+						if ((tempo>168)&&(tempo<=200)) indice=6+8*andamento;	// 2.Presto
+						if ((tempo>200)&&(tempo<=208)) indice=7+8*andamento;	// 1.Prestissimo					
+						
+						indice=(int)nota_mod12*56+indice+42;
+						
+						features[i_f][indice]=features[i_f][indice]+1;
+							
+						if (nota_precedente>0) {
+						
+							int interv_note=(int)nota-(int)nota_precedente;
+							
+							if (interv_note==0) {
+								indice= 778; 						// unisono
+							}
+							
+							if (interv_note==12) {
+								indice= 812; 						// unisono
+							}
+							
+	
+							float f_interv=interv_note/12;
+							interv_note=interv_note-12*(int)f_interv;
+							
+							if (interv_note>0) indice=778+3*interv_note-2; 			// intervallo melodico ascendente
+							if (interv_note<0) indice=778-3*interv_note-1; 			// intervallo melodico discendente
+	
+							features[i_f][indice]=features[i_f][indice]+1;
+						}
+						
+						nota_precedente=nota;
+						
+					} else { 
+						totale_accordi++;
+						
+						accordo=nota;
+						
+						note_accordo = new long[10];
+						int i_note=0;
+						
+						while (accordo>0) {
+							nota=accordo;
+							long conta_shift=1;
+							while (nota>108) {
+								nota=(long)nota/100;
+								conta_shift=100*conta_shift;
+							}
+							totale_note++;
+							
+							accordo=accordo-nota*conta_shift;
+							
+							note_accordo[i_note]=nota;
+							i_note++;
+						}
+						
+						long max_nota=0;
+						
+						for (int ii=0; ii<i_note; ii++) {
+							
+							if (max_nota<note_accordo[ii]) max_nota=note_accordo[ii]; // cerca la nota più alta per l'intervallo melodico
+
+							indice=0;
+							andamento=0;
+							
+							if (tipo_nota>=3) andamento=0;
+							else if (tipo_nota>=1.5) andamento=1;
+							else if (tipo_nota>=0.75) andamento=2;
+							else if (tipo_nota>=0.375) andamento=3;
+							else if (tipo_nota>=0.1875) andamento=4;
+							else if (tipo_nota>=0.09375) andamento=5;
+							else andamento=6;
+							
+							if ((tempo>40)&&(tempo<=60)) indice=0+8*andamento;		// 8.Largo
+							if ((tempo>60)&&(tempo<=66)) indice=1+8*andamento;		// 7.Larghetto
+							if ((tempo>66)&&(tempo<=76)) indice=2+8*andamento;		// 6.Adagio
+							if ((tempo>76)&&(tempo<=108)) indice=3+8*andamento;		// 5.Andante
+							if ((tempo>108)&&(tempo<=120)) indice=4+8*andamento;	// 4.Moderato
+							if ((tempo>120)&&(tempo<=168)) indice=5+8*andamento;	// 3.Allegro
+							if ((tempo>168)&&(tempo<=200)) indice=6+8*andamento;	// 2.Presto
+							if ((tempo>200)&&(tempo<=208)) indice=7+8*andamento;	// 1.Prestissimo					
+
+							f_nota=note_accordo[ii]/12;
+							long nota_mod12=note_accordo[ii]-12*(int)f_nota;
+							
+							indice=(int)nota_mod12*56+indice+42;
+							features[i_f][indice]=features[i_f][indice]+1;			// conta le note
+							
+
+							for (int j_note=ii+1; j_note<i_note; j_note++) {
+								int interv_note=(int)note_accordo[j_note]-(int)note_accordo[ii];
+								if (interv_note>12) interv_note=interv_note-12;
+								
+								indice=778+3*interv_note;
+								if (interv_note==12) indice=indice-2;
+								
+								features[i_f][indice]=features[i_f][indice]+1;
+							}// intervallo armonico
+
+							// Calcola intervallo melodico tra accordo e nota precedente o tra  due accordi (prende la nota più alta)
+							
+							if (nota_precedente>0) {
+								int interv_note=(int)max_nota-(int)nota_precedente;
+								
+								if (interv_note==0) {
+									indice= 778; 						// unisono
+								}
+	
+								float f_interv=interv_note/12;
+								interv_note=interv_note-12*(int)f_interv;
+								
+								if (interv_note>0) indice=778+3*interv_note-2; 			// intervallo melodico ascendente
+								if (interv_note<0) indice=778-3*interv_note-1; 			// intervallo melodico discendente
+	
+								features[i_f][indice]=features[i_f][indice]+1;
+							}
+							
+							nota_precedente=max_nota;							
+						}
+					}
+				}
+				
+				if ((converti_integrato[i][j]!=1111)&&(converti_integrato[i][j]!=9999)&&(converti_integrato[i][j]!=6666)&&(converti_integrato[i][j]!=8889)) {
+					partiture[ip][jp]=converti_integrato[i][j];
+					jp++;
+					if ((converti_integrato[i][j]==0)&&((converti_integrato[i][j+1]==0)||(converti_integrato[i][j-1]==0))) jp--;
+						
+				}
+
+				if (converti_integrato[i][j]!=1111) scrivi3.print(converti_integrato[i][j]+" ");
+					
+				if (jp>jp_max) jp_max=jp;
+			}
+			scrivi3.println("");
+			ip++;
+			jp=0;
+
+			i_f=i/8;
+			
+		}
+		if_max=i_f;
+		
+		scrivi3.close();
+	} catch (IOException ioException) {
+	}
+}
+
+//-----------------------OUTPUT DI PARTITURE SULLA CONSOLE E NEL FILE PROVA2-----------------------	
+
+public static void scriviFiles() {
+	int i, j, ind, i_fnew;
+	int[][] features_new;
+	try {
+			
+		FileOutputStream prova2 = new FileOutputStream("C:/Users/Pino/Dati/Musica/Chopin 2/prova2.txt");
+		PrintStream scrivi2 = new PrintStream(prova2);
+
+		FileOutputStream feature = new FileOutputStream("C:/Users/Pino/Dati/Musica/Chopin 2/features.txt");
+		PrintStream scrivif = new PrintStream(feature);
+
+		System.out.println("");
+		System.out.println("ip max = "+ip);
+		System.out.println("jp max = "+jp_max);
+		scrivi2.println("@relation Partitura");
+		scrivi2.println("@attribute,Tonalità,real");
+		scrivi2.println("@attribute,Modo,real");
+		scrivi2.println("@attribute,Nota_DO,real");
+		scrivi2.println("@attribute,Nota_DO#,real");
+		scrivi2.println("@attribute,Nota_RE,real");
+		scrivi2.println("@attribute,Nota_RE#,real");
+		scrivi2.println("@attribute,Nota_MI,real");
+		scrivi2.println("@attribute,Nota_FA,real");
+		scrivi2.println("@attribute,Nota_FA#,real");
+		scrivi2.println("@attribute,Nota_SOL,real");
+		scrivi2.println("@attribute,Nota_SOL#,real");
+		scrivi2.println("@attribute,Nota_LA,real");
+		scrivi2.println("@attribute,Nota_LA#,real");
+		scrivi2.println("@attribute,Nota_SI,real");
+		scrivi2.println("@attribute,Pause,real");
+		scrivi2.println("@attribute,Note_Staccate,real");
+		scrivi2.println("@attribute,Intervallo_0,real");
+		scrivi2.println("@attribute,Intervallo_1up,real");
+		scrivi2.println("@attribute,Intervallo_1dn,real");
+		scrivi2.println("@attribute,Intervallo_1arm,real");
+		scrivi2.println("@attribute,Intervallo_2up,real");
+		scrivi2.println("@attribute,Intervallo_2dn,real");
+		scrivi2.println("@attribute,Intervallo_2arm,real");
+		scrivi2.println("@attribute,Intervallo_3uo,real");
+		scrivi2.println("@attribute,Intervallo_3dn,real");
+		scrivi2.println("@attribute,Intervallo_3arm,real");
+		scrivi2.println("@attribute,Intervallo_4up,real");
+		scrivi2.println("@attribute,Intervallo_4dn,real");
+		scrivi2.println("@attribute,Intervallo_4arm,real");
+		scrivi2.println("@attribute,Intervallo_5up,real");
+		scrivi2.println("@attribute,Intervallo_5dn,real");
+		scrivi2.println("@attribute,Intervallo_5arm,real");
+		scrivi2.println("@attribute,Intervallo_6up,real");
+		scrivi2.println("@attribute,Intervallo_6dn,real");
+		scrivi2.println("@attribute,Intervallo_6arm,real");
+		scrivi2.println("@attribute,Intervallo_7up,real");
+		scrivi2.println("@attribute,Intervallo_7dn,real");
+		scrivi2.println("@attribute,Intervallo_7arm,real");
+		scrivi2.println("@attribute,Intervallo_8up,real");
+		scrivi2.println("@attribute,Intervallo_8dn,real");
+		scrivi2.println("@attribute,Intervallo_8arm,real");
+		scrivi2.println("@attribute,Intervallo_9up,real");
+		scrivi2.println("@attribute,Intervallo_9dn,real");
+		scrivi2.println("@attribute,Intervallo_9arm,real");
+		scrivi2.println("@attribute,Intervallo_10up,real");
+		scrivi2.println("@attribute,Intervallo_10dn,real");
+		scrivi2.println("@attribute,Intervallo_10arm,real");
+		scrivi2.println("@attribute,Intervallo_11up,real");
+		scrivi2.println("@attribute,Intervallo_11dn,real");
+		scrivi2.println("@attribute,Intervallo_11arm,real");
+		scrivi2.println("@attribute,Intervallo_12,real");
+		scrivi2.println("@attribute,Autore,{1,2,3}");
+		scrivi2.println("");
+		scrivi2.println("@data");
+
+		// Mancano gli attributi: Metro, Gruppo irregolare. Le note non sono suddivise in base alla loro durata, cioè 4/4, 2/4, 1/4 ecc.
+
+		features_new = new int[500][1000];
+		boolean uguali;
+		
+		// eliminare le istanze doppie
+		
+		for (j=0; j<815; j++) {
+			features_new[0][j]=features[0][j];
+		}
+		i_fnew=1;
+		for (i_f=1; i_f<if_max; i_f++) {
+			
+			int somma_tonalita=0;
+			for (int j_t=0; j_t<12; j_t++) {
+				somma_tonalita=somma_tonalita+features[i_f][j_t];
+			}
+			
+			if (somma_tonalita==0) {
+				for (int j_t=0; j_t<12; j_t++) {
+					features[i_f][j_t]=features[i_f-1][j_t];
+				}
+				features[i_f][813]=features[i_f-1][813];
+				features[i_f][814]=features[i_f-1][814];
+			} else System.out.println("i_f "+i_f+" somma_tonalita= "+somma_tonalita);
+			
+			uguali=false;
+			int ii=0;
+			while ((ii<i_f)&&(uguali==false)) {
+				j=0;
+				uguali=true;
+				while ((j<815)&&(uguali==true)) {
+					if ((features[i_f][j]!=features[ii][j])&&((j<12)||(j>41)&&(j<771)||(j>777))) {
+						uguali=false;
+					}
+					j++;
+				}
+				ii++;
+			}
+			if (!uguali) {
+				for (int jj=0; jj<815; jj++)  {
+					features_new[i_fnew][jj]=features[i_f][jj];
+				}
+				i_fnew++;
+			}
+		}
+		
+		System.out.println("i_fnew= "+i_fnew);
+		
+		int somma_note=0;
+		int tonalità=0;
+		for (i_f=0; i_f<i_fnew; i_f++) {
+			for (i=0; i<12; i++) {
+				if (features_new[i_f][i]!=0) tonalità=i-5;
+			}
+			scrivi2.print(features_new[i_f][814]+",");
+			scrivi2.print(features_new[i_f][813]+",");
+			
+			for (i=42; i<770; i=i+56) {
+				for (j=0; j<56; j++) {
+					somma_note=somma_note+features_new[i_f][i+j];
+				}
+				scrivi2.print(somma_note+",");
+				somma_note=0;
+			}
+			
+			scrivi2.print(features_new[i_f][770]+",");
+			for (i=778; i<813; i++) {
+				scrivi2.print(features_new[i_f][i]+",");
+			}
+			scrivi2.println(Autore); // 1=Chopin; 2=Beethoven; 3=Mozart
+		}
+		scrivi2.close();
+
+		for (i=0; i<815; i++) {
+			scrivif.print(features[0][i]+",");
+		}
+		scrivif.close();
+		System.out.println("Note con Staccato = "+Staccato);
+		System.out.println("Gruppi di note irregolari = "+Tuplets);
+		 
+	} catch (IOException ioException) {
+	}
+}
+
+}
